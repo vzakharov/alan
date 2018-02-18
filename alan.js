@@ -5,8 +5,6 @@ var builder = require('botbuilder')
 var axios = require('axios')
 var Rx = require ('xregexp')
 
-const Credentials = require('./credentials.json')
-
 const variableNamePattern = "[a-z_][a-zA-Z0-9_.]*[a-zA-Z0-9_]" // RegExp pattern to be used for identifying variable names
 const fullVariableRegExp = new RegExp("^" + variableNamePattern + "$", 'g')
 const inlineVariableRegExp = new RegExp("@" + variableNamePattern, 'g')
@@ -58,9 +56,9 @@ function skip(session) {
 session.beginDialog('alan.skip')
 }
 
-function init(filename, initBot) {
+function init(initCode, initBot) {
     bot = initBot
-    code = require(filename)
+    code = initCode
     prepare(code)
 
     bot.dialog('alan.check', [
