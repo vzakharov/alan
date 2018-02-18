@@ -1,0 +1,23 @@
+{
+  "name": "alanbot",
+  "version": "1.0.0",
+  "description": "Parser for a JSON-based language for describing chatbot interactionlogic.",
+  "main": "alan.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vzakharov/alanbot.git"
+  },
+  "keywords": [
+    "chatbot",
+    "azure"
+  ],
+  "author": "Vova Zakharov",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/vzakharov/alanbot/issues"
+  },
+  "homepage": "https://github.com/vzakharov/alanbot#readme"
+}
