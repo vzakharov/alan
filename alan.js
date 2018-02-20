@@ -1,5 +1,7 @@
 var bot
 
+//const builder = require('botbuilder')
+
 const Rx = require ('xregexp')
 var rx = require ('./regexps')
 
@@ -140,14 +142,11 @@ class Alan {
             }
         } else {
             command(this)
-            if (options.moveOn) {
-                this.next()
-            }
         }        
     }
 
-    next() {
-        this.do('next')
+    switchTo(what) {
+        this.do(what, {replace: true})
     }
 
     static isAsync(commandName) {
@@ -165,21 +164,19 @@ Alan.addCommands = function(commands, path) {
             continue
         }
         let functionStack = item.slice()
+        let numSteps = functionStack.length - 1
         let dialogName = 'alan.' + name
         let dialogStack = []
-        while (functionStack.length > 1) {
+        while (functionStack.length > 0) {
             let command = functionStack.shift()
-            dialogStack.push((session, results) => {
+            dialogStack.push((session, args, next) => {
                 let alan = getAlan(session)
-                command(alan, session, results)
+                command(alan, session, args, next)
+                if (session.dialogData["BotBuilder.Data.WaterfallStep"] == numSteps) {
+                    session.endDialog()
+                }
             })
         }
-        let command = functionStack.shift()
-        dialogStack.push((session, results) => {
-            let alan = getAlan(session)
-            command(alan, session, results)
-            session.endDialog()
-        })
     bot.dialog(dialogName, dialogStack)
     }
 }
@@ -193,6 +190,27 @@ Alan.init = function(code, initBot) {
     prepare(code)
 
     Alan.addCommands(Alan.commands)
+
+    /*bot.dialog('alan.choose.go', [
+        (session) => {
+            let alan = getAlan(session)
+            alan.choice.feed = alan.item
+            alan.do('choose.step')
+        },
+        (session) => {
+            let alan = getAlan(session)
+            builder.Prompts.choice(session, alan.messages.shift(), alan.choice.branches, { listStyle: 3 })
+        },
+        (session, results) => {
+            let alan = getAlan(session)
+            let choice = alan.choice
+            alan.command.result = results.entity
+            alan.setVar(choice.var, results.entity)
+            alan.branches.unshift(choice.branches[results.entity])
+            alan.choice = Alan.default.choice                
+            session.endDialog()
+        }
+    ])*/
 
 }
 
