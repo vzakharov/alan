@@ -116,6 +116,7 @@ class Alan {
             choice: {},
             branches: [Alan.code.slice()],
             command: {name: "", argument: null, results: null},
+            commandStack: [],
             item: "",
             messages: [],
             context: "",
@@ -131,18 +132,52 @@ class Alan {
         }
     }
 
+    wait() {
+        this.push('_wait')
+    }
+
+    get mustWait() {
+        return (this.lastStacked == '_wait')
+    }
+
+    get isStepOpen() {
+        return (typeof this.lastStacked == 'number')
+    }
+
+    push(what) {
+        let stack = this.commandStack
+        stack.push(what)
+        console.log(stack.join(" >> "))
+    }
+
+    pop() {
+        let stack = this.commandStack
+        stack.pop()
+        console.log(stack.join(" >> ") + " <<")
+    }
+
+    get lastStacked() {
+        let stack = this.commandStack
+        return stack[stack.length - 1]
+    }
+
     do(what, options = {}) {
         let command = Alan.commands[what]
         if (Alan.isAsync(what)) {
             let dialogName = 'alan.' + what
             if (options.replace) {
+                this.commandStack = []
+                this.push(what)
                 this.session.replaceDialog(dialogName)
             } else {
+                this.push(what)
                 this.session.beginDialog(dialogName)
             }
         } else {
+            this.push(what)
             command(this)
-        }        
+            this.pop()
+        }
     }
 
     switchTo(what) {
@@ -158,24 +193,47 @@ class Alan {
 var rx = require('./regexps')
 
 Alan.addCommands = function(commands, path) {
-    for (var name in commands) {
-        let item = commands[name]
+    for (var what in commands) {
+        let item = commands[what]
         if (typeof item === 'function') {
             continue
         }
         let functionStack = item.slice()
-        let numSteps = functionStack.length - 1
-        let dialogName = 'alan.' + name
+        let numSteps = functionStack.length
+        let isAsync = Alan.isAsync(what)
+        let dialogName = 'alan.' + what
         let dialogStack = []
         while (functionStack.length > 0) {
             let command = functionStack.shift()
-            dialogStack.push((session, args, next) => {
-                let alan = getAlan(session)
-                command(alan, session, args, next)
-                if (session.dialogData["BotBuilder.Data.WaterfallStep"] == numSteps) {
-                    session.endDialog()
+            dialogStack.push(
+                (session, args, next) => {
+                    console.log(`Async command: ${what}`)
+                    let alan = getAlan(session)
+                    let step = session.dialogData["BotBuilder.Data.WaterfallStep"] + 1
+
+                    if (numSteps > 1) {
+                        while (step > 1 && (alan.isStepOpen || alan.mustWait)) {
+                            alan.pop()
+                        }
+                        alan.push(step)
+                    }
+
+                    let stack = alan.commandStack
+                    const stackSize = () => stack.length + session.sessionState.callstack.length
+
+                    let oldStackSize = stackSize()                          // Remember current stack depth — we’ll need it later.                    
+                    command(alan, session, args, next)                      // Run the command, which possibly calls more asynchronous commands inside.
+                    if (oldStackSize == stackSize()) {                      // If we stack depth is again the same — i.e., there were NO asynchronous calls inside, —
+                        if (step < numSteps) {                              //  and if it’s not the last step yet,
+                            alan.pop()
+                            next()                                          //  then go to the next step, so that the dialog doesn’t wait for user input.                            
+                        } else {                                            // And if it’s the last step,
+                            alan.pop()                                       //  then remove the command from the stack
+                            session.endDialog()                             //  and end the dialog.
+                        } 
+                    }
                 }
-            })
+            )
         }
     bot.dialog(dialogName, dialogStack)
     }
@@ -190,27 +248,6 @@ Alan.init = function(code, initBot) {
     prepare(code)
 
     Alan.addCommands(Alan.commands)
-
-    /*bot.dialog('alan.choose.go', [
-        (session) => {
-            let alan = getAlan(session)
-            alan.choice.feed = alan.item
-            alan.do('choose.step')
-        },
-        (session) => {
-            let alan = getAlan(session)
-            builder.Prompts.choice(session, alan.messages.shift(), alan.choice.branches, { listStyle: 3 })
-        },
-        (session, results) => {
-            let alan = getAlan(session)
-            let choice = alan.choice
-            alan.command.result = results.entity
-            alan.setVar(choice.var, results.entity)
-            alan.branches.unshift(choice.branches[results.entity])
-            alan.choice = Alan.default.choice                
-            session.endDialog()
-        }
-    ])*/
 
 }
 
