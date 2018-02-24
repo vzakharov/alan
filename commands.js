@@ -4,29 +4,33 @@ const Alan = require('./alan')
 
 var rx = require('./regexps')
 
-Alan.commands = {
+class AlanWithCommands extends Alan {
 
-    check: alan => {
-        let name = alan.command.argument
-        let value = alan.vars[name]
-        let branch = alan.branches[0]
+    constructor(session) {
+        super(session)
+    }
+
+    _check() {
+        let name = this.command.argument
+        let value = this.vars[name]
+        let branch = this.branches[0]
         let fork = branch.shift()
         let options = {}
         for (let i = 0; i < fork.length; i += 2) {
             if (fork[i] == value || fork[i] == 'else') {
-                alan.branches.unshift(fork[i + 1])
+                this.branches.unshift(fork[i + 1])
                 return
             }
         }
-    },
+    }
 
-    choose: alan => {
-        alan.choice.var = alan.command.argument
-    },
+    _choose() {
+        this.choice.var = this.command.argument
+    }
 
-    'choose_': async alan => {
-        alan.choice.feed = alan.item
-        let choice = alan.choice
+    async _choose_() {
+        this.choice.feed = this.item
+        let choice = this.choice
         while (choice.feed.length > 0) {
             choice.item = choice.feed.shift()
             let item = choice.item
@@ -44,9 +48,9 @@ Alan.commands = {
                             name: operatorName,
                             args: match
                         }
-                        let operatorCommand = 'choose_.' + choice.operator.name                        
+                        let operatorCommand = 'choose_' + choice.operator.name                        
                         choice.expectsCode = true
-                        await alan.do(operatorCommand)
+                        await this.do(operatorCommand)
                         break
                     }
                 }
@@ -68,52 +72,52 @@ Alan.commands = {
                 choice.expectsCode = false
             }
         }
-        await alan.prompt('choice', alan.choice.branches, { listStyle: 3 })
+        await this.prompt('choice', this.choice.branches, { listStyle: 3 })
 
-        let results = alan.dialog.results
+        let results = this.dialog.results
         let chosenItem = results.response.entity
 
-        alan.command.results = chosenItem
-        alan.setVar(choice.var, chosenItem)
-        alan.branches.unshift(choice.branches[chosenItem])
-        alan.choice = Alan.default.choice            
-    },
+        this.command.results = chosenItem
+        this.setVar(choice.var, chosenItem)
+        this.branches.unshift(choice.branches[chosenItem])
+        this.choice = Alan.default.choice            
+    }
 
-    'choose_.among': (alan) => {
-        let choice = alan.choice
+    _choose_among() {
+        let choice = this.choice
         let what = choice.operator.args.what
-        let options = alan.getVar(what)
+        let options = this.getVar(what)
         choice.options.unshift(options)
-    },
+    }
 
-    'choose_.need': (alan) => {
-        let choice = alan.choice
-        let variable = alan.getVar(choice.operator.args.what)
+    _choose_need() {
+        let choice = this.choice
+        let variable = this.getVar(choice.operator.args.what)
         if (!variable) {
             choice.options.shift()
             choice.feed.shift()
             choice.expectsCode = false
         }
-    },
+    }
 
-    goto: alan => {
-        let where = alan.command.argument.slice()
+    _goto() {
+        let where = this.command.argument.slice()
         if (typeof where == 'string') {
             where = Alan.labels[where].slice()
         }
-        let labelName = alan.command.argument
+        let labelName = this.command.argument
         
-        alan.branches = []
+        this.branches = []
         let branchToAdd = [Alan.code]
         while (where.length > 0) {
-            alan.branches.unshift(branchToAdd[0].slice(where.shift()))
-            branchToAdd = alan.branches[0]
+            this.branches.unshift(branchToAdd[0].slice(where.shift()))
+            branchToAdd = this.branches[0]
         }
-    },
+    }
 
-    load: async alan => {
-        await alan.prompt('attachment')
-        let results = alan.dialog.results
+    async _load() {
+        await this.prompt('attachment')
+        let results = this.dialog.results
         await new Promise((resolve, reject) => {
             Alan.bot.connector('*').getAccessToken(
                 async (err, token) => {
@@ -128,32 +132,32 @@ Alan.commands = {
                         }
                     })
                     file.data = response.data._readableState.buffer.head
-                    alan.vars[alan.command.argument] = file
+                    this.vars[this.command.argument] = file
                     resolve()
                 }
             )
         })
-    },
+    }
 
-    print: alan => {        
-        let session = alan.session
-        while (alan.messages.length > 0) {
-            session.send(alan.messages.shift())
+    _print() {        
+        let session = this.session
+        while (this.messages.length > 0) {
+            session.send(this.messages.shift())
         }
         session.sendTyping()
-        let str = alan.formatString(alan.command.argument)
-        alan.messages.push(str)
-    },
+        let str = this.formatString(this.command.argument)
+        this.messages.push(str)
+    }
 
-    read: async alan => {
-        await alan.prompt('text')
-        let text = alan.dialog.results.response
-        alan.command.results = text
-        alan.vars[alan.command.argument] = text;
-    },
+    async _read() {
+        await this.prompt('text')
+        let text = this.dialog.results.response
+        this.command.results = text
+        this.vars[this.command.argument] = text;
+    }
 
-    set: alan => {
-        let args = Rx.exec(alan.command.argument, rx.args['set'])
+    _set() {
+        let args = Rx.exec(this.command.argument, rx.args['set'])
         let value
         //let args = argument.split(' ')
         if (args.boolean) {
@@ -161,14 +165,16 @@ Alan.commands = {
         } else if (args.number) {
             value = Number(args.number)
         } else if (args.toNextItem) {
-            value = alan.branches[0].shift()
+            value = this.branches[0].shift()
         } else if (args.var) {
-            value = alan.getVar(args.var)
+            value = this.getVar(args.var)
         } else {
             value = args.value
         }
-        alan.setVar(args.what, value)
-    },
+        this.setVar(args.what, value)
+    }
 
-    next: () => {}
+    _next() {}
 }
+
+module.exports = AlanWithCommands

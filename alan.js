@@ -179,7 +179,8 @@ class Alan {
 
     async do(what) {
         this.push(what)
-        await Alan.commands[what](this)
+        let methodName = '_' + what
+        await this[methodName]()
         this.pop()
     }
 
