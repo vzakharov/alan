@@ -26,7 +26,9 @@ module.exports = {
     },
 
     'choose.go': [
-        (alan, session, results, next) => {
+        (session, results) => {
+            let alan = Alan.from(session)
+
             alan.choice.feed = alan.item
             let choice = alan.choice
             while (choice.feed.length > 0) {
@@ -72,13 +74,17 @@ module.exports = {
             }
             builder.Prompts.choice(session, alan.messages.shift(), alan.choice.branches, { listStyle: 3 })
         },
-        (alan, session, results) => {
+        (session, results) => {
+            let alan = Alan.from(session)
             let choice = alan.choice
             let result = results.response.entity
+
             alan.command.result = result
             alan.setVar(choice.var, result)
             alan.branches.unshift(choice.branches[result])
-            alan.choice = Alan.default.choice                
+            alan.choice = Alan.default.choice            
+            
+            session.endDialog()
         }
     ],
 
@@ -99,9 +105,9 @@ module.exports = {
         }
     },
 
-    go: [(alan) => {
-        alan.do('step', {replace: true})
-    }],
+    go: async alan => {
+        await alan.do('step', {replace: true})
+    },
 
     goto: (alan) => {
         let where = alan.command.argument.slice()
@@ -147,14 +153,15 @@ module.exports = {
         (alan) => {}
     ],
 
-    print: [(alan, session) => {        
+    print: alan => {        
+        let session = alan.session
         while (alan.messages.length > 0) {
             session.send(alan.messages.shift())
         }
         session.sendTyping()
         let str = alan.formatString(alan.command.argument)
         alan.messages.push(str)
-    }],
+    },
 
     read: [
         (alan, session) => {
@@ -184,27 +191,23 @@ module.exports = {
         alan.setVar(args.what, value)
     },
 
-    next: [alan => {}],
+    next: alan => {},
 
-    step: [
-        (alan, session, args, next) => {
-            let branch = alan.branches[0]
+    step: [async (session) => {
+        let alan = Alan.from(session)
+    
+        do {
+            let branch = alan.currentBranch()
+
             alan.item = branch.shift()
             let item = alan.item
-            console.log(item)
+            console.log("Code: ", item)
             alan.parseCommand()
             let commandName = alan.command.name
-            alan.do(commandName)
-        },
-        (alan) => {
-            let branch = alan.branches[0]
-            if (branch.length == 0) {
-                alan.branches.shift()
-                if (alan.branches.length == 0) {
-                    alan.branches = [Alan.code.slice()]
-                }
-            }
-            alan.switchTo('step')
-        }
-    ]
+
+            await alan.do(commandName)
+        } while (session.sessionState.callstack.slice().pop().id == "*:alan.step")
+    }, (session) => {
+        session.replaceDialog('alan.step')
+    }]
 }

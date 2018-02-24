@@ -1,4 +1,6 @@
 var bot
+const crypto = require('crypto');
+const alans = {}
 
 //const builder = require('botbuilder')
 
@@ -6,7 +8,7 @@ const Rx = require ('xregexp')
 var rx = require ('./regexps')
 
 function getAlan(session) {
-    return new Alan(session)
+    return Alan.from(session)
 }
 
 function prepare(code, branch = []) {
@@ -27,26 +29,23 @@ class Alan {
 
     constructor(session) {
 
-        let protoAlan
-        let alan = this
+        this.uid = crypto.randomBytes(16).toString('hex')
 
-        if ('alan'in session.userData) {
-            protoAlan = session.userData.alan
-        } else {
-            protoAlan = Alan.default
-        }
+        alans[this.uid] = this
+        session.userData.alan = this
 
-        for (var key in protoAlan) {
-            alan[key] = protoAlan[key]
-        }
+        Object.assign(this, Alan.default)
 
-        Object.defineProperty(alan, "session", {
+        Object.defineProperty(this, "session", {
             get: () => { return session }
         })
 
-        session.userData.alan = alan
-
     }
+
+    go() {
+        this.session.beginDialog('alan.step')
+    }
+
 
     // "Unfolds" a string including inline variables, etc.
     formatString(str) {
@@ -114,6 +113,7 @@ class Alan {
         return {
             vars: {},
             choice: {},
+            dialog: {},
             branches: [Alan.code.slice()],
             command: {name: "", argument: null, results: null},
             commandStack: [],
@@ -132,6 +132,24 @@ class Alan {
         }
     }
 
+    static from(session) {
+        return alans[session.userData.alan.uid]
+    }
+
+    currentBranch() {
+        let alan = this
+        let branch = alan.branches[0]
+
+        if (branch.length == 0) {
+            alan.branches.shift()
+            if (alan.branches.length == 0) {
+                alan.branches = [Alan.code.slice()]
+            }
+        }
+
+        return branch
+    }
+
     wait() {
         this.push('_wait')
     }
@@ -147,7 +165,7 @@ class Alan {
     push(what) {
         let stack = this.commandStack
         stack.push(what)
-        console.log(stack.join(" >> "))
+        console.log(">> " + stack.join(" >> "))
     }
 
     pop() {
@@ -161,21 +179,21 @@ class Alan {
         return stack[stack.length - 1]
     }
 
-    do(what, options = {}) {
+    async do(what, options = {}) {
         let command = Alan.commands[what]
-        if (Alan.isAsync(what)) {
+        let session = this.session
+
+        this.push(what)
+        if (Alan.isDialog(what)) {
             let dialogName = 'alan.' + what
             if (options.replace) {
-                this.commandStack = []
-                this.push(what)
-                this.session.replaceDialog(dialogName)
+                this.pop()
+                session.replaceDialog(dialogName)
             } else {
-                this.push(what)
-                this.session.beginDialog(dialogName)
+                session.beginDialog(dialogName)
             }
         } else {
-            this.push(what)
-            command(this)
+            await command(this)
             this.pop()
         }
     }
@@ -184,7 +202,7 @@ class Alan {
         this.do(what, {replace: true})
     }
 
-    static isAsync(commandName) {
+    static isDialog(commandName) {
         return !(typeof Alan.commands[commandName] === 'function')
     }
 
@@ -197,45 +215,9 @@ Alan.addCommands = function(commands, path) {
         let item = commands[what]
         if (typeof item === 'function') {
             continue
+        } else {
+            bot.dialog('alan.' + what, item)
         }
-        let functionStack = item.slice()
-        let numSteps = functionStack.length
-        let isAsync = Alan.isAsync(what)
-        let dialogName = 'alan.' + what
-        let dialogStack = []
-        while (functionStack.length > 0) {
-            let command = functionStack.shift()
-            dialogStack.push(
-                (session, args, next) => {
-                    console.log(`Async command: ${what}`)
-                    let alan = getAlan(session)
-                    let step = session.dialogData["BotBuilder.Data.WaterfallStep"] + 1
-
-                    if (numSteps > 1) {
-                        while (step > 1 && (alan.isStepOpen || alan.mustWait)) {
-                            alan.pop()
-                        }
-                        alan.push(step)
-                    }
-
-                    let stack = alan.commandStack
-                    const stackSize = () => stack.length + session.sessionState.callstack.length
-
-                    let oldStackSize = stackSize()                          // Remember current stack depth — we’ll need it later.                    
-                    command(alan, session, args, next)                      // Run the command, which possibly calls more asynchronous commands inside.
-                    if (oldStackSize == stackSize()) {                      // If we stack depth is again the same — i.e., there were NO asynchronous calls inside, —
-                        if (step < numSteps) {                              //  and if it’s not the last step yet,
-                            alan.pop()
-                            next()                                          //  then go to the next step, so that the dialog doesn’t wait for user input.                            
-                        } else {                                            // And if it’s the last step,
-                            alan.pop()                                       //  then remove the command from the stack
-                            session.endDialog()                             //  and end the dialog.
-                        } 
-                    }
-                }
-            )
-        }
-    bot.dialog(dialogName, dialogStack)
     }
 }
 
@@ -249,6 +231,32 @@ Alan.init = function(code, initBot) {
 
     Alan.addCommands(Alan.commands)
 
+    /*bot.dialog('alan.step', [async (session, args, next) => {
+        let alan = getAlan(session)
+        let branch = alan.branches[0]
+    
+        alan.item = branch.shift()
+        let item = alan.item
+        console.log("Code: ", item)
+        alan.parseCommand()
+        let commandName = alan.command.name
+    
+        await alan.do(commandName)
+        next()
+    }, (session) => {
+        let alan = getAlan(session)
+        let branch = alan.branches[0]
+    
+        if (branch.length == 0) {
+            alan.branches.shift()
+            if (alan.branches.length == 0) {
+                alan.branches = [Alan.code.slice()]
+            }
+        }
+    
+        session.replaceDialog('alan.step')
+    }])*/
 }
+
 
 module.exports = Alan
