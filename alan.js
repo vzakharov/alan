@@ -2,7 +2,7 @@ var bot
 const crypto = require('crypto');
 const alans = {}
 
-//const builder = require('botbuilder')
+const builder = require('botbuilder')
 
 const Rx = require ('xregexp')
 var rx = require ('./regexps')
@@ -42,9 +42,6 @@ class Alan {
 
     }
 
-    go() {
-        this.session.beginDialog('alan.step')
-    }
 
 
     // "Unfolds" a string including inline variables, etc.
@@ -179,6 +176,8 @@ class Alan {
         return stack[stack.length - 1]
     }
 
+
+
     async do(what, options = {}) {
         let command = Alan.commands[what]
         let session = this.session
@@ -205,6 +204,30 @@ class Alan {
     static isDialog(commandName) {
         return !(typeof Alan.commands[commandName] === 'function')
     }
+    
+    async go() {
+        this.session.beginDialog('alan.dialogOnDemand')
+        this.do('step')
+    }
+    async prompt(dialogType, optionsOrChoices, options) {
+        return new Promise((resolve, reject) => {
+            this.dialog.end = resolve
+            let dialog = this.dialog
+
+            dialog.type = dialogType
+            dialog.options = optionsOrChoices
+            
+            if (dialogType == 'choice') {
+                dialog.choices = optionsOrChoices
+                dialog.options = options
+            }
+    
+            dialog.prompt = this.messages.pop()
+    
+            this.dialog.start()
+            })
+    }
+
 
 }
 
@@ -231,31 +254,34 @@ Alan.init = function(code, initBot) {
 
     Alan.addCommands(Alan.commands)
 
-    /*bot.dialog('alan.step', [async (session, args, next) => {
-        let alan = getAlan(session)
-        let branch = alan.branches[0]
-    
-        alan.item = branch.shift()
-        let item = alan.item
-        console.log("Code: ", item)
-        alan.parseCommand()
-        let commandName = alan.command.name
-    
-        await alan.do(commandName)
-        next()
-    }, (session) => {
-        let alan = getAlan(session)
-        let branch = alan.branches[0]
-    
-        if (branch.length == 0) {
-            alan.branches.shift()
-            if (alan.branches.length == 0) {
-                alan.branches = [Alan.code.slice()]
+    bot.dialog('alan.dialogOnDemand', [
+        async session => {
+            let alan = Alan.from(session)
+
+            await new Promise((resolve, reject) => {
+                alan.dialog.start = resolve
+            })
+
+            let dialog = alan.dialog
+            
+            let optionsOrChoices = dialog.options
+            let optionsIfChoice
+            if (dialog.type == 'choice') {
+                optionsOrChoices = dialog.choices
+                optionsIfChoice = dialog.options
             }
+            builder.Prompts[dialog.type](session, dialog.prompt, optionsOrChoices, optionsIfChoice)
+        },
+        (session, results) => {
+            let alan = Alan.from(session)
+
+            alan.dialog.results = results
+
+            session.replaceDialog('alan.dialogOnDemand')
+            alan.dialog.end()
         }
-    
-        session.replaceDialog('alan.step')
-    }])*/
+    ])
+
 }
 
 

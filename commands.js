@@ -25,68 +25,60 @@ module.exports = {
         alan.choice.var = alan.command.argument
     },
 
-    'choose.go': [
-        (session, results) => {
-            let alan = Alan.from(session)
-
-            alan.choice.feed = alan.item
-            let choice = alan.choice
-            while (choice.feed.length > 0) {
-                choice.item = choice.feed.shift()
-                let item = choice.item
-                if (Array.isArray(item)) {
-                    choice.expectsCode = true
-                } else {
-                    let match
-                    for (var operatorName in rx.args.choose) {
-                        let operatorArgs = rx.args.choose[operatorName].xregexp.source
-                        let regex = Rx(`^${operatorName} ${operatorArgs}`)
-                        match = Rx.exec(item, regex)
-                        if (match) {
-                            choice.expectsCode = true
-                            choice.operator = {
-                                name: operatorName,
-                                args: match
-                            }
-                            let operatorCommand = 'choose.' + choice.operator.name                        
-                            choice.expectsCode = true
-                            alan.do(operatorCommand)
-                            break
-                        }
-                    }
-                    if (match) continue
-                    if (!choice.expectsCode) {
-                        choice.options.unshift(item)
+    'choose.go': async (alan) => {
+        alan.choice.feed = alan.item
+        let choice = alan.choice
+        while (choice.feed.length > 0) {
+            choice.item = choice.feed.shift()
+            let item = choice.item
+            if (Array.isArray(item)) {
+                choice.expectsCode = true
+            } else {
+                let match
+                for (var operatorName in rx.args.choose) {
+                    let operatorArgs = rx.args.choose[operatorName].xregexp.source
+                    let regex = Rx(`^${operatorName} ${operatorArgs}`)
+                    match = Rx.exec(item, regex)
+                    if (match) {
                         choice.expectsCode = true
-                        continue
+                        choice.operator = {
+                            name: operatorName,
+                            args: match
+                        }
+                        let operatorCommand = 'choose.' + choice.operator.name                        
+                        choice.expectsCode = true
+                        alan.do(operatorCommand)
+                        break
                     }
-                }                
-                if (choice.expectsCode) {
-                    let options = choice.options[0]
-                    if (!Array.isArray(options)) {
-                        options = [options]
-                    }
-                    options.forEach(option => {
-                        choice.branches[option] = choice.item                        
-                    });
-                    choice.expectsCode = false
                 }
+                if (match) continue
+                if (!choice.expectsCode) {
+                    choice.options.unshift(item)
+                    choice.expectsCode = true
+                    continue
+                }
+            }                
+            if (choice.expectsCode) {
+                let options = choice.options[0]
+                if (!Array.isArray(options)) {
+                    options = [options]
+                }
+                options.forEach(option => {
+                    choice.branches[option] = choice.item                        
+                });
+                choice.expectsCode = false
             }
-            builder.Prompts.choice(session, alan.messages.shift(), alan.choice.branches, { listStyle: 3 })
-        },
-        (session, results) => {
-            let alan = Alan.from(session)
-            let choice = alan.choice
-            let result = results.response.entity
-
-            alan.command.result = result
-            alan.setVar(choice.var, result)
-            alan.branches.unshift(choice.branches[result])
-            alan.choice = Alan.default.choice            
-            
-            session.endDialog()
         }
-    ],
+        await alan.prompt('choice', alan.choice.branches, { listStyle: 3 })
+
+        let results = alan.dialog.results
+        let chosenItem = results.response.entity
+
+        alan.command.results = chosenItem
+        alan.setVar(choice.var, chosenItem)
+        alan.branches.unshift(choice.branches[chosenItem])
+        alan.choice = Alan.default.choice            
+    },
 
     'choose.among': (alan) => {
         let choice = alan.choice
@@ -164,10 +156,12 @@ module.exports = {
     },
 
     read: [
-        (alan, session) => {
+        (session) => {
             builder.Prompts.text(session, alan.messages.pop())
         },
-        (alan, session, results) => {
+        (session, results) => {
+            let alan = Alan.from(session)
+
             alan.command.result = results.response
             alan.vars[alan.command.argument] = alan.command.result;
         }
@@ -193,10 +187,8 @@ module.exports = {
 
     next: alan => {},
 
-    step: [async (session) => {
-        let alan = Alan.from(session)
-    
-        do {
+    step: async (alan) => {
+        while(1) {
             let branch = alan.currentBranch()
 
             alan.item = branch.shift()
@@ -206,8 +198,6 @@ module.exports = {
             let commandName = alan.command.name
 
             await alan.do(commandName)
-        } while (session.sessionState.callstack.slice().pop().id == "*:alan.step")
-    }, (session) => {
-        session.replaceDialog('alan.step')
-    }]
+        }
+    }
 }
