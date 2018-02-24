@@ -1,13 +1,12 @@
-const builder = require('botbuilder')
 const axios = require('axios')
 const Rx = require ('xregexp')
 const Alan = require('./alan')
 
 var rx = require('./regexps')
 
-module.exports = {
+Alan.commands = {
 
-    check: (alan) => {
+    check: alan => {
         let name = alan.command.argument
         let value = alan.vars[name]
         let branch = alan.branches[0]
@@ -21,11 +20,11 @@ module.exports = {
         }
     },
 
-    choose: (alan) => {
+    choose: alan => {
         alan.choice.var = alan.command.argument
     },
 
-    'choose.go': async (alan) => {
+    'choose_': async alan => {
         alan.choice.feed = alan.item
         let choice = alan.choice
         while (choice.feed.length > 0) {
@@ -45,9 +44,9 @@ module.exports = {
                             name: operatorName,
                             args: match
                         }
-                        let operatorCommand = 'choose.' + choice.operator.name                        
+                        let operatorCommand = 'choose_.' + choice.operator.name                        
                         choice.expectsCode = true
-                        alan.do(operatorCommand)
+                        await alan.do(operatorCommand)
                         break
                     }
                 }
@@ -80,14 +79,14 @@ module.exports = {
         alan.choice = Alan.default.choice            
     },
 
-    'choose.among': (alan) => {
+    'choose_.among': (alan) => {
         let choice = alan.choice
         let what = choice.operator.args.what
         let options = alan.getVar(what)
         choice.options.unshift(options)
     },
 
-    'choose.need': (alan) => {
+    'choose_.need': (alan) => {
         let choice = alan.choice
         let variable = alan.getVar(choice.operator.args.what)
         if (!variable) {
@@ -97,11 +96,7 @@ module.exports = {
         }
     },
 
-    go: async alan => {
-        await alan.do('step', {replace: true})
-    },
-
-    goto: (alan) => {
+    goto: alan => {
         let where = alan.command.argument.slice()
         if (typeof where == 'string') {
             where = Alan.labels[where].slice()
@@ -116,34 +111,29 @@ module.exports = {
         }
     },
 
-    load: [
-        (alan) => {
-            builder.Prompts.attachment(session, alan.messages.pop())
-        },
-        (alan, session, results, next) => {
-            alan.wait()
-            bot.connector('*').getAccessToken(
-                (err, token) => {
+    load: async alan => {
+        await alan.prompt('attachment')
+        let results = alan.dialog.results
+        await new Promise((resolve, reject) => {
+            Alan.bot.connector('*').getAccessToken(
+                async (err, token) => {
                     let file = results.response[0]
-                    axios({
+                    let response = await axios({
                         method: 'get',
                         url: file.contentUrl,
                         responseType: 'stream',
                         headers: {
-                        'Authorization': 'Bearer ' + token,
-                        'Content-Type': 'application/octet-stream'
-                    }}).then(
-                        (response) => {                            
-                            file.data = response.data._readableState.buffer.head
-                            alan.vars[alan.command.argument] = file
-                            next()
+                            'Authorization': 'Bearer ' + token,
+                            'Content-Type': 'application/octet-stream'
                         }
-                    )
+                    })
+                    file.data = response.data._readableState.buffer.head
+                    alan.vars[alan.command.argument] = file
+                    resolve()
                 }
             )
-        },
-        (alan) => {}
-    ],
+        })
+    },
 
     print: alan => {        
         let session = alan.session
@@ -155,17 +145,12 @@ module.exports = {
         alan.messages.push(str)
     },
 
-    read: [
-        (session) => {
-            builder.Prompts.text(session, alan.messages.pop())
-        },
-        (session, results) => {
-            let alan = Alan.from(session)
-
-            alan.command.result = results.response
-            alan.vars[alan.command.argument] = alan.command.result;
-        }
-    ],
+    read: async alan => {
+        await alan.prompt('text')
+        let text = alan.dialog.results.response
+        alan.command.results = text
+        alan.vars[alan.command.argument] = text;
+    },
 
     set: alan => {
         let args = Rx.exec(alan.command.argument, rx.args['set'])
@@ -185,19 +170,5 @@ module.exports = {
         alan.setVar(args.what, value)
     },
 
-    next: alan => {},
-
-    step: async (alan) => {
-        while(1) {
-            let branch = alan.currentBranch()
-
-            alan.item = branch.shift()
-            let item = alan.item
-            console.log("Code: ", item)
-            alan.parseCommand()
-            let commandName = alan.command.name
-
-            await alan.do(commandName)
-        }
-    }
+    next: () => {}
 }

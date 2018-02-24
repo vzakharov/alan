@@ -1,4 +1,3 @@
-var bot
 const crypto = require('crypto');
 const alans = {}
 
@@ -42,7 +41,7 @@ class Alan {
 
     }
 
-
+    static get alans() { return alans }
 
     // "Unfolds" a string including inline variables, etc.
     formatString(str) {
@@ -63,7 +62,7 @@ class Alan {
         let alan = this
 
         if (Array.isArray(item)) {
-            alan.command = {name: "choose.go", argument: Alan.default.choice.var}
+            alan.command = {name: "choose_", argument: Alan.default.choice.var}
         } else if (typeof item == "number") {
             alan.command = {name: "goto", argument: item.toString()}
         } else if (item[0] == "#") {
@@ -178,23 +177,10 @@ class Alan {
 
 
 
-    async do(what, options = {}) {
-        let command = Alan.commands[what]
-        let session = this.session
-
+    async do(what) {
         this.push(what)
-        if (Alan.isDialog(what)) {
-            let dialogName = 'alan.' + what
-            if (options.replace) {
-                this.pop()
-                session.replaceDialog(dialogName)
-            } else {
-                session.beginDialog(dialogName)
-            }
-        } else {
-            await command(this)
-            this.pop()
-        }
+        await Alan.commands[what](this)
+        this.pop()
     }
 
     switchTo(what) {
@@ -206,11 +192,17 @@ class Alan {
     }
     
     async go() {
-        this.session.beginDialog('alan.dialogOnDemand')
-        this.do('step')
+        let alan = this
+
+        alan.session.beginDialog('alan.daemon')
+        while(1) {
+            alan.item = alan.currentBranch().shift()
+            alan.parseCommand()
+            await alan.do(alan.command.name)
+        }
     }
     async prompt(dialogType, optionsOrChoices, options) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             this.dialog.end = resolve
             let dialog = this.dialog
 
@@ -221,40 +213,32 @@ class Alan {
                 dialog.choices = optionsOrChoices
                 dialog.options = options
             }
-    
+
+            await new Promise((resolve, reject) => {
+                this.session.sendBatch(resolve)
+            })
+            /*while(this.messages.length > 1) {
+                this.session.send(this.messages.pop)
+            }*/
+
             dialog.prompt = this.messages.pop()
     
             this.dialog.start()
             })
     }
 
-
 }
 
 var rx = require('./regexps')
 
-Alan.addCommands = function(commands, path) {
-    for (var what in commands) {
-        let item = commands[what]
-        if (typeof item === 'function') {
-            continue
-        } else {
-            bot.dialog('alan.' + what, item)
-        }
-    }
-}
-
-Alan.init = function(code, initBot) {
-    bot = initBot
-    Alan.code = code
+Alan.init = function(code, bot) {
+    Object.assign(Alan, {bot, code})
 
     Alan.labels = {}
 
     prepare(code)
 
-    Alan.addCommands(Alan.commands)
-
-    bot.dialog('alan.dialogOnDemand', [
+    Alan.bot.dialog('alan.daemon', [
         async session => {
             let alan = Alan.from(session)
 
@@ -277,7 +261,7 @@ Alan.init = function(code, initBot) {
 
             alan.dialog.results = results
 
-            session.replaceDialog('alan.dialogOnDemand')
+            session.replaceDialog('alan.daemon')
             alan.dialog.end()
         }
     ])
