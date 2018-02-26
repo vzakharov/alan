@@ -1,7 +1,9 @@
+// Create chat connector for communicating with the Bot Framework Service
 const crypto = require('crypto');
 const alans = {}
 
 const builder = require('botbuilder')
+const restify = require('restify');
 
 const Rx = require ('xregexp')
 var rx = require ('./regexps')
@@ -10,19 +12,6 @@ function getAlan(session) {
     return Alan.from(session)
 }
 
-function prepare(code, branch = []) {
-    let labels = Alan.labels
-
-    for (var i = 0; i < code.length; i++) {
-        item = code[i]
-        pos = branch.concat(i)
-        if (Array.isArray(item)) {
-            prepare(item, pos)
-        } else if (typeof item == "string" && item[0] == "#") {
-            labels[item.substring(1)] = pos
-        }
-    }
-}
 
 class Alan {      
 
@@ -39,6 +28,29 @@ class Alan {
             get: () => { return session }
         })
 
+    }
+
+    static get default() {
+        return {
+            vars: {},
+            choice: {},
+            dialog: {},
+            branches: [Alan.code.slice()],
+            command: {name: "", argument: null, results: null},
+            commandStack: [],
+            item: "",
+            messages: [],
+            context: "",
+            choice: {
+                branches: {},
+                options: [],
+                var: '_choice',
+                operator: null,
+                expectsCode: false,
+                item: "",
+                feed: []
+            }      
+        }
     }
 
     static get alans() { return alans }
@@ -62,7 +74,7 @@ class Alan {
         let alan = this
 
         if (Array.isArray(item)) {
-            alan.command = {name: "choose_", argument: Alan.default.choice.var}
+            alan.command = {name: "choose_", argument: '_choice'}
         } else if (typeof item == "number") {
             alan.command = {name: "goto", argument: item.toString()}
         } else if (item[0] == "#") {
@@ -103,29 +115,6 @@ class Alan {
             varBranch = varBranch[item]                
         }
         return {branch:varBranch, leaf:children}
-    }
-
-    static get default() {
-        return {
-            vars: {},
-            choice: {},
-            dialog: {},
-            branches: [Alan.code.slice()],
-            command: {name: "", argument: null, results: null},
-            commandStack: [],
-            item: "",
-            messages: [],
-            context: "",
-            choice: {
-                branches: {},
-                options: [],
-                var: '_choice',
-                operator: null,
-                expectsCode: false,
-                item: "",
-                feed: []
-            }      
-        }
     }
 
     static from(session) {
@@ -196,15 +185,18 @@ class Alan {
         let alan = this
 
         alan.session.beginDialog('alan.daemon')
+        
         while(1) {
             alan.item = alan.currentBranch().shift()
             alan.parseCommand()
             await alan.do(alan.command.name)
         }
     }
+
     async prompt(dialogType, optionsOrChoices, options) {
         return new Promise(async (resolve, reject) => {
             this.dialog.end = resolve
+
             let dialog = this.dialog
 
             dialog.type = dialogType
@@ -218,56 +210,15 @@ class Alan {
             await new Promise((resolve, reject) => {
                 this.session.sendBatch(resolve)
             })
-            /*while(this.messages.length > 1) {
-                this.session.send(this.messages.pop)
-            }*/
 
             dialog.prompt = this.messages.pop()
-    
+
             this.dialog.start()
-            })
+        })
     }
 
 }
 
 var rx = require('./regexps')
-
-Alan.init = function(code, bot) {
-    Object.assign(Alan, {bot, code})
-
-    Alan.labels = {}
-
-    prepare(code)
-
-    Alan.bot.dialog('alan.daemon', [
-        async session => {
-            let alan = Alan.from(session)
-
-            await new Promise((resolve, reject) => {
-                alan.dialog.start = resolve
-            })
-
-            let dialog = alan.dialog
-            
-            let optionsOrChoices = dialog.options
-            let optionsIfChoice
-            if (dialog.type == 'choice') {
-                optionsOrChoices = dialog.choices
-                optionsIfChoice = dialog.options
-            }
-            builder.Prompts[dialog.type](session, dialog.prompt, optionsOrChoices, optionsIfChoice)
-        },
-        (session, results) => {
-            let alan = Alan.from(session)
-
-            alan.dialog.results = results
-
-            session.replaceDialog('alan.daemon')
-            alan.dialog.end()
-        }
-    ])
-
-}
-
 
 module.exports = Alan

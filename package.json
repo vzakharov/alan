@@ -1,7 +1,7 @@
 {
   "name": "alanbot",
-  "version": "1.0.0",
-  "description": "Parser for a JSON-based language for describing chatbot interactionlogic.",
+  "version": "0.1.0",
+  "description": "Parser for a JSON-based language for describing chatbot interaction logic.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

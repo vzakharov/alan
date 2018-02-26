@@ -1,5 +1,6 @@
-var BareAlan = require('./alan')
+var Alan = require('./alan')
 
-var AlanWithCommands = require('./commands')
+require('./commands')(Alan)
+require('./init')(Alan)
 
-module.exports = AlanWithCommands
+module.exports = Alan
