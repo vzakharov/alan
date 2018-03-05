@@ -54,29 +54,26 @@ module.exports = (Alan) => {
                     outcomes[str] = feed.shift()
                 } 
                 else if (Array.isArray(item)) {
-                    let objectArray = item
-                    let stringArray = objectArray
-                    let key
+                    let array = item
                     let nextItem = feed.shift()
                     let outcome = nextItem
 
                     if (typeof nextItem === 'string') {
-                        key = nextItem
-                        stringArray = objectArray.map((element) => element[key])
+                        let choicePattern = nextItem
                         outcome = feed.shift()
-                    }
-
-                    choices.push(...stringArray)
-
-                    objectArray.forEach((element) => {
-                        let specificOutcome = outcome
-                        if (key) {
-                            specificOutcome = async () => {
+                        array.forEach((element) => {
+                            let choice = alan.format(choicePattern, element)
+                            choices.push(choice)
+                            outcomes[choice] = async () => {
                                 await outcome(element)
                             }
-                        }                        
-                        outcomes[element[key]] = specificOutcome
-                    })
+                        })
+                    } else {
+                        array.forEach((choice) => {
+                            choices.push(choice)
+                            outcomes[choice] = outcome
+                        })
+                    }
                 }
             }
 
