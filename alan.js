@@ -165,17 +165,11 @@ class Alan {
         Alan.flow(this)
     }
 
-    purgeMessages() {
-        while (this.messages.length > 0) {
-            this.session.send(this.messages.shift())
-        }
-    }
-
     async prompt(dialogType, text, optionsOrChoices, options) {
         let dialog = this.dialog
         let session = this.session
 
-        this.purgeMessages()
+        this.fire()
         // Send out any pending  messages
         await new Promise((resolve, reject) => {
             session.sendBatch(resolve)

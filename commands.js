@@ -85,6 +85,21 @@ module.exports = (Alan) => {
             return await outcome()
         },
     
+        // Sends out any pending messages
+        fire: function() {
+            while (this.messages.length > 0) {
+                this.session.send(this.messages.shift())
+            }
+        },
+
+        // “Glues” a message to the batch to be sent out once fire is called
+        glue: function(message, obj) {
+            with (this) {
+                let last = messages.length - 1
+                messages[last] += '\n\n' + format(message, obj)
+            }
+        },
+
         goto: alan => {
             let where = alan.command.argument.slice()
             if (typeof where == 'string') {
@@ -128,7 +143,7 @@ module.exports = (Alan) => {
             let session = this.session
             let messages = this.messages
 
-            this.purgeMessages()
+            this.fire()
 
             session.sendTyping()
 
