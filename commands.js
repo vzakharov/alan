@@ -1,120 +1,111 @@
 const axios = require('axios')
 const Rx = require ('xregexp')
+const _ = require('lodash')
 
 var rx = require('./regexps')
 
 module.exports = (Alan) => {
 
-    commands = {
-        check: function() {
-            let name = this.command.argument
-            let value = this.vars[name]
-            let branch = this.branches[0]
+    let commands = {
+
+        api: {
+
+            get: async function(endpoint) {
+                with (this) {
+                    let fullUrl = url + endpoint
+                    let response = await axios(fullUrl, {
+                        auth: {
+                            username: username,
+                            password: password
+                        }
+                    })
+                    return response.data
+                }
+            }
+
+        },
+
+        check: alan => {
+            let name = alan.command.argument
+            let value = alan.vars[name]
+            let branch = alan.branches[0]
             let fork = branch.shift()
             let options = {}
             for (let i = 0; i < fork.length; i += 2) {
                 if (fork[i] == value || fork[i] == 'else') {
-                    this.branches.unshift(fork[i + 1])
+                    alan.branches.unshift(fork[i + 1])
                     return
                 }
             }
         },
     
-        choose: function() {
-            this.choice.var = this.command.argument
-        },
-    
-        choose_: async function() {
-            this.choice.feed = this.item
-            let choice = this.choice
-            while (choice.feed.length > 0) {
-                choice.item = choice.feed.shift()
-                let item = choice.item
-                if (Array.isArray(item)) {
-                    choice.expectsCode = true
-                } else {
-                    let match
-                    for (var operatorName in rx.args.choose) {
-                        let operatorArgs = rx.args.choose[operatorName].xregexp.source
-                        let regex = Rx(`^${operatorName} ${operatorArgs}`)
-                        match = Rx.exec(item, regex)
-                        if (match) {
-                            choice.expectsCode = true
-                            choice.operator = {
-                                name: operatorName,
-                                args: match
+        choose: async function(feed) {
+            let alan = this
+            let choices = []
+            let outcomes = {}
+
+            while (feed.length > 0) {
+                let item = feed.shift()
+
+                if (typeof item === 'string') {
+                    let str = alan.format(item)
+
+                    choices.push(str)  
+                    outcomes[str] = feed.shift()
+                } 
+                else if (Array.isArray(item)) {
+                    let objectArray = item
+                    let stringArray = objectArray
+                    let key
+                    let nextItem = feed.shift()
+                    let outcome = nextItem
+
+                    if (typeof nextItem === 'string') {
+                        key = nextItem
+                        stringArray = objectArray.map((element) => element[key])
+                        outcome = feed.shift()
+                    }
+
+                    choices.push(...stringArray)
+
+                    objectArray.forEach((element) => {
+                        let specificOutcome = outcome
+                        if (key) {
+                            specificOutcome = async () => {
+                                await outcome(element)
                             }
-                            let operatorCommand = 'choose_' + choice.operator.name                        
-                            choice.expectsCode = true
-                            await this.do(operatorCommand)
-                            break
-                        }
-                    }
-                    if (match) continue
-                    if (!choice.expectsCode) {
-                        choice.options.unshift(item)
-                        choice.expectsCode = true
-                        continue
-                    }
-                }                
-                if (choice.expectsCode) {
-                    let options = choice.options[0]
-                    if (!Array.isArray(options)) {
-                        options = [options]
-                    }
-                    options.forEach(option => {
-                        choice.branches[option] = choice.item                        
-                    });
-                    choice.expectsCode = false
+                        }                        
+                        outcomes[element[key]] = specificOutcome
+                    })
                 }
             }
 
-            await this.prompt('choice', this.choice.branches, { listStyle: 3 })
+            await alan.prompt('choice', alan.messages.pop(), choices, { listStyle: 3 })
     
-            let results = this.dialog.results
-            let chosenItem = results.response.entity
-    
-            this.command.results = chosenItem
-            this.setVar(choice.var, chosenItem)
-            this.branches.unshift(choice.branches[chosenItem])
-            this.choice = Alan.default.choice
+            let choice = alan.dialog.results.response.entity
+            let outcome = outcomes[choice]
+
+            return await outcome()
         },
     
-        choose_among: function() {
-            let choice = this.choice
-            let what = choice.operator.args.what
-            let options = this.getVar(what)
-            choice.options.unshift(options)
-        },
-    
-        choose_need: function() {
-            let choice = this.choice
-            let variable = this.getVar(choice.operator.args.what)
-            if (!variable) {
-                choice.options.shift()
-                choice.feed.shift()
-                choice.expectsCode = false
-            }
-        },
-    
-        goto: function() {
-            let where = this.command.argument.slice()
+        goto: alan => {
+            let where = alan.command.argument.slice()
             if (typeof where == 'string') {
                 where = Alan.labels[where].slice()
             }
-            let labelName = this.command.argument
+            let labelName = alan.command.argument
             
-            this.branches = []
+            alan.branches = []
             let branchToAdd = [Alan.code]
             while (where.length > 0) {
-                this.branches.unshift(branchToAdd[0].slice(where.shift()))
-                branchToAdd = this.branches[0]
+                alan.branches.unshift(branchToAdd[0].slice(where.shift()))
+                branchToAdd = alan.branches[0]
             }
         },
     
-        load: async function() {
-            await this.prompt('attachment')
-            let results = this.dialog.results
+        load: async alan => {
+            await alan.prompt('attachment')
+            let results = alan.dialog.results
             await new Promise((resolve, reject) => {
                 Alan.bot.connector('*').getAccessToken(
                     async (err, token) => {
@@ -129,32 +120,39 @@ module.exports = (Alan) => {
                             }
                         })
                         file.data = response.data._readableState.buffer.head
-                        this.vars[this.command.argument] = file
+                        alan.vars[alan.command.argument] = file
                         resolve()
                     }
                 )
             })
         },
     
-        print: function() {        
+        put: function(message, obj) {
             let session = this.session
-            while (this.messages.length > 0) {
-                session.send(this.messages.shift())
-            }
+            let messages = this.messages
+
+            this.purgeMessages()
+
             session.sendTyping()
-            let str = this.formatString(this.command.argument)
-            this.messages.push(str)
+
+            let str = this.format(message, obj)
+
+            if (message.match(rx.loading)) {
+                session.send(str)
+            } else {
+                messages.push(str)
+            }
         },
     
-        read: async function() {
-            await this.prompt('text')
-            let text = this.dialog.results.response
-            this.command.results = text
-            this.vars[this.command.argument] = text;
+        read: async function(request) {
+            let alan = this
+
+            await alan.prompt('text', request)
+            return alan.dialog.results.response
         },
     
-        set: function() {
-            let args = Rx.exec(this.command.argument, rx.args['set'])
+        set: function(what, toWhat) {
+            let args = Rx.exec(alan.command.argument, rx.args['set'])
             let value
             //let args = argument.split(' ')
             if (args.boolean) {
@@ -162,19 +160,20 @@ module.exports = (Alan) => {
             } else if (args.number) {
                 value = Number(args.number)
             } else if (args.toNextItem) {
-                value = this.branches[0].shift()
+                value = alan.branches[0].shift()
             } else if (args.var) {
-                value = this.getVar(args.var)
+                value = alan.getVar(args.var)
             } else {
                 value = args.value
             }
-            this.setVar(args.what, value)
+            alan.setVar(args.what, value)
         },
     
-        next: function() {}
+        next: alan => {}
     }
 
-    for (key in commands) {
-        Alan.prototype["_" + key] = commands[key]
-    }
+    Object.assign(Alan.prototype, commands)
+
+    return Alan
+
 }

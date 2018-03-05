@@ -17,7 +17,8 @@ module.exports = Alan => {
         }
     }  
 
-    Alan.init = function(code) {
+    Alan.init = function(flow) {
+        Alan.flow = flow
         Alan.server = restify.createServer()
         let server = Alan.server
     
@@ -36,12 +37,6 @@ module.exports = Alan => {
         server.post('/api/messages', connector.listen());  
     
         Alan.storage = new builder.MemoryBotStorage();
-        
-        Alan.code = code
-    
-        Alan.labels = {}
-    
-        prepare(code)
     
         Alan.bot = new builder.UniversalBot(connector, [
             session => {
@@ -52,30 +47,35 @@ module.exports = Alan => {
         Alan.bot.dialog('alan.daemon', [
             async session => {
                 let alan = Alan.from(session)
+                let dialog = alan.dialog
    
+                // Do nothing until alan.dialog.start() is called
                 await new Promise((resolve, reject) => {
                     alan.dialog.start = resolve
+                    if (alan.dialog.ready) {
+                        alan.dialog.ready()
+                        alan.dialog.ready = null
+                    }
                 })
-                
-                let dialog = alan.dialog
-                
-                let optionsOrChoices = dialog.options
-                let optionsIfChoice
-                if (dialog.type == 'choice') {
-                    optionsOrChoices = dialog.choices
-                    optionsIfChoice = dialog.options
-                }
-                builder.Prompts[dialog.type](session, dialog.prompt, optionsOrChoices, optionsIfChoice)
+                                
+                builder.Prompts[dialog.type](session, ...dialog.arguments)
             },
             (session, results) => {
                 let alan = Alan.from(session)
     
                 alan.dialog.results = results
     
+                // Restart the dialog and make a callback for alan.prompt to proceed
                 session.replaceDialog('alan.daemon')
                 alan.dialog.end()
             }
         ])
+
+        for (key in Alan.commands) {
+            Alan.prototype[key] = function() {
+                Alan.commands[key](this)
+            }
+        }
     }
 
 }

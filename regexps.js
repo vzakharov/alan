@@ -10,7 +10,8 @@ module.exports = {
     setToWhat: /^(to|=)$/,
     number: /^[0-9.]+$/,
     command: /^([a-z][a-zA-Z.]+) (.+)$/,
-    inlineVar: new RegExp("@" + varNamePtrn, 'g'),
+    loading: /\.\.\.$/,
+    inlineVar: new RegExp("\\$" + varNamePtrn, 'g'),
     fullVar: new RegExp("^" + varNamePtrn + "$", 'g'),
     args: {
         choose: {

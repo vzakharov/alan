@@ -35,7 +35,7 @@ class Alan {
             vars: {},
             choice: {},
             dialog: {},
-            branches: [Alan.code.slice()],
+//            branches: [Alan.code.slice()],
             command: {name: "", argument: null, results: null},
             commandStack: [],
             item: "",
@@ -56,57 +56,52 @@ class Alan {
     static get alans() { return alans }
 
     // "Unfolds" a string including inline variables, etc.
-    formatString(str) {
+    format(str, obj) {
         let alan = this
 
+        if (!obj) {
+            obj = alan.vars
+        }
         let variables = str.match(rx.inlineVar)
         if (variables) {
             variables.forEach((inlineVarName) => {
-                let varValue = alan.getVar(inlineVarName.slice(1))
-                str = str.replace(new RegExp(inlineVarName, 'g'), varValue)
+                let varValue = Alan.getVar(obj, inlineVarName.slice(1))
+                str = str.replace(new RegExp("\\" + inlineVarName, 'g'), varValue)
             })                
         }
+
         return str
     }
 
-    parseCommand() {
-        let item = this.item
-        let alan = this
-
+    static parse(item) {
         if (Array.isArray(item)) {
-            alan.command = {name: "choose_", argument: '_choice'}
+            return {name: "choose_", argument: '_choice'}
         } else if (typeof item == "number") {
-            alan.command = {name: "goto", argument: item.toString()}
-        } else if (item[0] == "#") {
-            alan.command = {name: "next", argument: null}
-        } else if (item.substring(0,2) == ">>") {
-            alan.command = {name: "goto", argument: item.substring(2)}
-        } else {
-            let match = item.match(rx.command)
-            if (match) {
-                alan.command = {name: match[1], argument: match[2]}
+            return {name: "goto", argument: item.toString()}
+        } else if (typeof item == "string") {
+            if (item[0] == "#") {
+                return {name: "next", argument: null}
+            } else if (item.substring(0,2) == ">>") {
+                return {name: "goto", argument: item.substring(2)}
             } else {
-                alan.command = {name: "print", argument: item}
-            }    
+                let match = item.match(rx.command)
+                if (match) {
+                    return {name: match[1], argument: match[2]}
+                } else {
+                    return {name: "print", argument: item}
+                } 
+            }
         }
     }
 
-    getVar(varName) {
-        let alan = this
-        let location = alan.getVarLocation(varName)
+    static getVar(obj, varName) {
+        let location = Alan.getVarLocation(obj, varName)
         return location.branch[location.leaf]
     }
 
-    setVar(varName, varValue) {
-        let alan = this
-        let location = alan.getVarLocation(varName)
-        location.branch[location.leaf] = varValue
-    }
-
-    getVarLocation(varName) {
-        let alan = this
+    static getVarLocation(obj, varName) {
         let children = varName.split('.')
-        let varBranch = alan.vars
+        let varBranch = obj
         while (children.length > 1) {
             let item = children.shift()
             if (!(item in varBranch)) {
@@ -135,18 +130,6 @@ class Alan {
         return branch
     }
 
-    wait() {
-        this.push('_wait')
-    }
-
-    get mustWait() {
-        return (this.lastStacked == '_wait')
-    }
-
-    get isStepOpen() {
-        return (typeof this.lastStacked == 'number')
-    }
-
     push(what) {
         let stack = this.commandStack
         stack.push(what)
@@ -165,55 +148,49 @@ class Alan {
     }
 
 
-
     async do(what) {
         this.push(what)
-        let methodName = '_' + what
-        await this[methodName]()
+        await Alan.commands[what](this)
         this.pop()
     }
 
-    switchTo(what) {
-        this.do(what, {replace: true})
-    }
-
-    static isDialog(commandName) {
-        return !(typeof Alan.commands[commandName] === 'function')
-    }
-    
     async go() {
         let alan = this
 
-        alan.session.beginDialog('alan.daemon')
-        
-        while(1) {
-            alan.item = alan.currentBranch().shift()
-            alan.parseCommand()
-            await alan.do(alan.command.name)
+        await new Promise((resolve, reject) => {
+            alan.dialog.ready = resolve
+            alan.session.beginDialog('alan.daemon')
+        })
+
+        Alan.flow(this)
+    }
+
+    purgeMessages() {
+        while (this.messages.length > 0) {
+            this.session.send(this.messages.shift())
         }
     }
 
-    async prompt(dialogType, optionsOrChoices, options) {
+    async prompt(dialogType, text, optionsOrChoices, options) {
+        let dialog = this.dialog
+        let session = this.session
+
+        this.purgeMessages()
+        // Send out any pending  messages
+        await new Promise((resolve, reject) => {
+            session.sendBatch(resolve)
+        })
+
         return new Promise(async (resolve, reject) => {
-            this.dialog.end = resolve
-
-            let dialog = this.dialog
-
+            dialog.end = resolve
             dialog.type = dialogType
-            dialog.options = optionsOrChoices
-            
+            dialog.arguments = [text, optionsOrChoices]
+
             if (dialogType == 'choice') {
-                dialog.choices = optionsOrChoices
-                dialog.options = options
+                dialog.arguments.push(options)
             }
 
-            await new Promise((resolve, reject) => {
-                this.session.sendBatch(resolve)
-            })
-
-            dialog.prompt = this.messages.pop()
-
-            this.dialog.start()
+            dialog.start()
         })
     }
 
