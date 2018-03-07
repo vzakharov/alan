@@ -10,16 +10,15 @@ module.exports = (Alan) => {
 
         api: {
 
-            get: async function(endpoint) {
+            get: async function(url) {
                 with (this) {
-                    let fullUrl = url + endpoint
-                    let response = await axios(fullUrl, {
-                        auth: {
-                            username: username,
-                            password: password
-                        }
-                    })
-                    return response.data
+                    try {
+                        let response = await axios(url, options)
+                        return response.data
+                    } catch(error) {
+                        console.error(error)
+                        return null
+                    }
                 }
             }
 
@@ -39,7 +38,7 @@ module.exports = (Alan) => {
             }
         },
     
-        choose: async function(feed) {
+        choose: async function(... feed) {
             let alan = this
             let choices = []
             let outcomes = {}
@@ -47,6 +46,10 @@ module.exports = (Alan) => {
             while (feed.length > 0) {
                 let item = feed.shift()
 
+                if (!item ){
+                    feed.shift()
+                    continue
+                }
                 if (typeof item === 'string') {
                     let str = alan.format(item)
 
@@ -82,8 +85,10 @@ module.exports = (Alan) => {
             let choice = alan.dialog.results.response.entity
             let outcome = outcomes[choice]
 
-            return await outcome()
+            this.jump(outcome)
         },
+
+        dummy: () => {},
     
         // Sends out any pending messages
         fire: function() {
@@ -100,24 +105,22 @@ module.exports = (Alan) => {
             }
         },
 
-        goto: alan => {
-            let where = alan.command.argument.slice()
-            if (typeof where == 'string') {
-                where = Alan.labels[where].slice()
+        jump: async function(label, args) {
+            let where = label
+            if (args) {
+                where = () => {
+                    label(args)
+                }
             }
-            let labelName = alan.command.argument
-            
-            alan.branches = []
-            let branchToAdd = [Alan.code]
-            while (where.length > 0) {
-                alan.branches.unshift(branchToAdd[0].slice(where.shift()))
-                branchToAdd = alan.branches[0]
-            }
+            process.nextTick(where)
         },
     
-        load: async alan => {
-            await alan.prompt('attachment')
-            let results = alan.dialog.results
+        load: async function() {
+            let a = this
+
+            await a.prompt('attachment', a.messages.pop)
+
+            let results = a.dialog.results
             await new Promise((resolve, reject) => {
                 Alan.bot.connector('*').getAccessToken(
                     async (err, token) => {
@@ -132,7 +135,7 @@ module.exports = (Alan) => {
                             }
                         })
                         file.data = response.data._readableState.buffer.head
-                        alan.vars[alan.command.argument] = file
+                        a.vars[a.command.argument] = file
                         resolve()
                     }
                 )
